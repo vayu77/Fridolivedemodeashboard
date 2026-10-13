@@ -1,0 +1,93 @@
+<!DOCTYPE html><html><head><base target="_top"><meta charset="utf-8">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--ac:#0f766e;--bg:#f6f8f9;--bd:#e3e8eb;--tx:#1a2428;--mu:#667983}
+*{box-sizing:border-box}body{margin:0;font:14px system-ui,Segoe UI,Arial,sans-serif;color:var(--tx);background:var(--bg);display:flex;min-height:100vh}
+nav{width:200px;background:#fff;border-right:1px solid var(--bd);padding:18px 12px;position:sticky;top:0;height:100vh}
+nav h2{margin:0 8px 18px;color:var(--ac);font-size:20px}
+nav a{display:block;padding:10px 12px;border-radius:8px;color:var(--tx);cursor:pointer;margin-bottom:4px}
+nav a.on{background:var(--ac);color:#fff}
+main{flex:1;padding:20px;min-width:0}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
+.bar h1{font-size:20px;margin:0 auto 0 0}
+select,input,button{padding:7px 10px;border:1px solid var(--bd);border-radius:8px;background:#fff;font:inherit}
+button{cursor:pointer}button.p{background:var(--ac);color:#fff;border-color:var(--ac)}
+.grid{display:grid;gap:14px;margin-bottom:14px}.k{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.c2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.card{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:14px}
+.card b{display:block;font-size:26px;margin-top:4px}.card span{color:var(--mu);font-size:12px}.card h3{margin:0 0 10px;font-size:14px}
+.cv{position:relative;height:280px}
+table{width:100%;border-collapse:collapse}th,td{padding:8px;text-align:left;border-bottom:1px solid var(--bd)}th{cursor:pointer;color:var(--mu);font-weight:600;white-space:nowrap}td.n,th.n{text-align:right}
+.sc{max-height:340px;overflow:auto}
+#msg{padding:10px 14px;border-radius:8px;margin-bottom:12px;display:none;background:#fff4e5;border:1px solid #f5c26b}
+#ld{display:none;color:var(--mu)}.pg{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:8px}
+@media(max-width:700px){nav{width:64px}nav a{font-size:0}nav a:before{content:attr(data-i);font-size:14px}nav h2{font-size:0}}
+</style></head><body>
+<nav><h2>Frido</h2>
+<a data-v="home" data-i="🏠" class="on">Home</a><a data-v="Mobility" data-i="M">Mobility</a>
+<a data-v="Furniture" data-i="F">Furniture</a><a data-v="Non-Furniture" data-i="N">Non-Furniture</a></nav>
+<main>
+<div class="bar"><h1 id="ttl">Overview</h1><span id="ld">Loading…</span>
+<select id="agent"><option value="all">All Agents</option></select>
+<select id="rng"><option value="today">Today</option><option value="yest">Yesterday</option><option value="7">Last 7 Days</option><option value="30">Last 30 Days</option><option value="cus">Custom Range</option></select>
+<span id="cr" style="display:none"><input type="date" id="from"> – <input type="date" id="to"></span>
+<button class="p" id="rf">⟳ Refresh</button></div>
+<div style="color:var(--mu);margin:-8px 0 12px;font-size:12px">Last refreshed: <span id="up">–</span></div>
+<div id="msg"></div><div id="app"></div></main>
+<script>
+const DEPTS=['Mobility','Furniture','Non-Furniture'],COL={Mobility:'#2563eb',Furniture:'#f59e0b','Non-Furniture':'#0f766e'};
+let D=[],view='home',ch=[],sort={k:'dt',d:-1},pg=0,recs=false;
+const $=i=>document.getElementById(i),esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ist=d=>d.toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'});
+const add=(s,n)=>{const d=new Date(s+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10)};
+const fmt=s=>{const[y,m,d]=s.split('-');return d+'/'+m+'/'+y};
+function rng(){const t=ist(new Date()),p=$('rng').value;
+ if(p=='today')return[t,t];if(p=='yest'){const y=add(t,-1);return[y,y]}
+ if(p=='7')return[add(t,-6),t];if(p=='30')return[add(t,-29),t];
+ return[$('from').value||'0000-00-00',$('to').value||'9999-99-99']}
+const ag=()=>$('agent').value;
+const sel=(dept,a,b)=>D.filter(r=>(!dept||r.d==dept)&&r.dt>=a&&r.dt<=b&&(ag()=='all'||r.a==ag()));
+const uniq=a=>[...new Set(a)];
+function dates(a,b,rows){const mn=rows.length?rows.map(r=>r.dt).sort()[0]:a;let s=a<mn?mn:a,e=b>ist(new Date())?ist(new Date()):b,o=[];
+ if(a=='0000-00-00')s=mn;for(let d=s;d<=e&&o.length<400;d=add(d,1))o.push(d);return o}
+function kill(){ch.forEach(c=>c.destroy());ch=[]}
+function kpi(l,v,s){return`<div class="card"><span>${l}</span><b>${v}</b>${s?`<span>${s}</span>`:''}</div>`}
+function load(){$('ld').style.display='inline';$('rf').disabled=true;
+ google.script.run.withSuccessHandler(r=>{D=r.rows;$('up').textContent=r.updated;$('ld').style.display='none';$('rf').disabled=false;
+  const m=[];if(r.errors.length)m.push(...r.errors);if(r.skipped)m.push(r.skipped+' row(s) skipped (missing agent or invalid date).');
+  $('msg').style.display=m.length?'block':'none';$('msg').innerHTML=m.map(esc).join('<br>');
+  const cur=ag(),as=uniq(D.map(r=>r.a)).sort();$('agent').innerHTML='<option value="all">All Agents</option>'+as.map(a=>`<option>${esc(a)}</option>`).join('');
+  $('agent').value=as.includes(cur)?cur:'all';render()})
+ .withFailureHandler(e=>{$('ld').style.display='none';$('rf').disabled=false;$('msg').style.display='block';$('msg').textContent='Could not load data: '+e.message}).getData()}
+function render(){kill();pg=0;view=='home'?home():dept(view)}
+function home(){const[a,b]=rng(),R=sel(null,a,b),lab=$('rng').selectedOptions[0].text,
+ by=d=>R.filter(r=>r.d==d).length;
+ let h=`<div class="grid k">${kpi(lab+' – Total Demos',R.length)}${DEPTS.map(d=>kpi(d+' Demos',by(d))).join('')}${kpi('Agents Active',uniq(R.map(r=>r.a)).length)}</div>
+ <div class="grid c2"><div class="card"><h3>Department share</h3><div class="cv"><canvas id="pie"></canvas></div></div>
+ <div class="card"><h3>Daily demo trend</h3><div class="cv"><canvas id="tr"></canvas></div></div></div>`;
+ $('app').innerHTML=h;const tot=R.length;
+ ch.push(new Chart($('pie'),{type:'pie',data:{labels:DEPTS,datasets:[{data:DEPTS.map(by),backgroundColor:DEPTS.map(d=>COL[d])}]},
+  options:{maintainAspectRatio:false,plugins:{tooltip:{callbacks:{label:c=>`${c.label}: ${c.raw} demos (${tot?(c.raw/tot*100).toFixed(1):0}%)`}}}}}));
+ const ds=dates(a,b,R);
+ ch.push(new Chart($('tr'),{type:'line',data:{labels:ds.map(fmt),datasets:DEPTS.map(d=>({label:d,borderColor:COL[d],backgroundColor:COL[d],tension:.25,data:ds.map(x=>R.filter(r=>r.d==d&&r.dt==x).length)}))},
+  options:{maintainAspectRatio:false,scales:{y:{beginAtZero:true,ticks:{precision:0}}}}}))}
+function dept(d){const[a,b]=rng(),R=sel(d,a,b),t=ist(new Date()),T=sel(d,t,t),ags=uniq(R.map(r=>r.a));
+ let g={};R.forEach(r=>{const k=r.a+'|'+r.dt;g[k]=g[k]||{a:r.a,dt:r.dt,n:0,x:[]};g[k].n++;g[k].x.push(r)});
+ let L=recs?R.map(r=>({a:r.a,dt:r.dt,n:1,c:r.c})):Object.values(g);
+ L.sort((p,q)=>(p[sort.k]>q[sort.k]?1:-1)*sort.d);const P=15,pages=Math.max(1,Math.ceil(L.length/P));if(pg>=pages)pg=pages-1;
+ const cnt={};R.forEach(r=>cnt[r.a]=(cnt[r.a]||0)+1);const al=Object.entries(cnt).sort((p,q)=>q[1]-p[1]);
+ const ds=dates(a,b,R).reverse().map(x=>[x,R.filter(r=>r.dt==x).length]);
+ const arr=k=>sort.k==k?(sort.d>0?' ▲':' ▼'):'';
+ $('app').innerHTML=`<div class="grid k">${kpi('Demos Today',T.length)}${kpi('Demos in Range',R.length)}${kpi('Unique Agents',ags.length)}${kpi('Avg per Active Agent',ags.length?(R.length/ags.length).toFixed(1):0)}</div>
+ <div class="grid c2"><div class="card"><h3>Demos by agent</h3><div class="cv"><canvas id="bar"></canvas></div></div>
+ <div class="card"><h3>Daily demo summary</h3><div class="sc" style="max-height:280px"><table><tr><th>Date</th><th class="n">Demos</th></tr>${ds.map(x=>`<tr><td>${fmt(x[0])}</td><td class="n">${x[1]}</td></tr>`).join('')||'<tr><td colspan=2>No data</td></tr>'}</table></div></div></div>
+ <div class="card"><h3>Agent-wise performance <label style="font-weight:400;float:right"><input type="checkbox" id="rc" ${recs?'checked':''}> Show individual records</label></h3>
+ <div class="sc"><table><tr><th data-k="a">Agent Name${arr('a')}</th><th class="n" data-k="n">Number of Demos${arr('n')}</th><th data-k="dt">Demo Date${arr('dt')}</th>${recs?'<th>Customer</th>':''}</tr>
+ ${L.slice(pg*P,pg*P+P).map(r=>`<tr><td>${esc(r.a)}</td><td class="n">${r.n}</td><td>${fmt(r.dt)}</td>${recs?`<td>${esc(r.c||'–')}</td>`:''}</tr>`).join('')||'<tr><td colspan=4>No demos in this range.</td></tr>'}</table></div>
+ <div class="pg"><button id="pv">‹</button> Page ${pg+1} / ${pages} <button id="nx">›</button></div></div>`;
+ ch.push(new Chart($('bar'),{type:'bar',data:{labels:al.map(x=>x[0]),datasets:[{label:'Demos',data:al.map(x=>x[1]),backgroundColor:COL[d]}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}}));
+ document.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{const k=th.dataset.k;sort={k:k,d:sort.k==k?-sort.d:1};dept(d)});
+ $('rc').onchange=e=>{recs=e.target.checked;pg=0;dept(d)};$('pv').onclick=()=>{if(pg>0){pg--;dept(d)}};$('nx').onclick=()=>{if(pg<pages-1){pg++;dept(d)}}}
+document.querySelectorAll('nav a').forEach(a=>a.onclick=()=>{document.querySelectorAll('nav a').forEach(x=>x.classList.remove('on'));a.classList.add('on');view=a.dataset.v;$('ttl').textContent=view=='home'?'Overview':view;render()});
+$('agent').onchange=render;$('rng').onchange=()=>{$('cr').style.display=$('rng').value=='cus'?'inline':'none';render()};
+$('from').onchange=$('to').onchange=render;$('rf').onclick=load;load();setInterval(load,180000);
+</script></body></html>
